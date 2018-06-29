@@ -5,6 +5,7 @@
 import json
 import unittest
 import sys
+from uuid import uuid4
 
 import datetime
 
@@ -45,7 +46,7 @@ class TablibTestCase(unittest.TestCase):
 
         # Verify width/data
         self.assertTrue(data.width == len(new_row))
-        self.assertTrue(data[0] == new_row)
+        self.assertTrue(data[0].tuple == new_row)
 
     def test_empty_append_with_headers(self):
         """Verify append() correctly detects mismatch of number of
@@ -78,7 +79,7 @@ class TablibTestCase(unittest.TestCase):
 
         data.append_col(new_col)
 
-        self.assertEqual(data[0], ('kenneth', 'reitz'))
+        self.assertEqual(data[0].tuple, ('kenneth', 'reitz'))
         self.assertEqual(data.width, 2)
 
         # With Headers
@@ -95,7 +96,7 @@ class TablibTestCase(unittest.TestCase):
 
         data.append_col(new_col)
 
-        self.assertEqual(data[0], tuple([new_col[0]]))
+        self.assertEqual(tuple(data[0]), tuple([new_col[0]]))
         self.assertEqual(data.width, 1)
         self.assertEqual(data.height, len(new_col))
 
@@ -108,7 +109,7 @@ class TablibTestCase(unittest.TestCase):
 
         data.append_col(new_col, header='first_name')
 
-        self.assertEqual(data[0], tuple([new_col[0]]))
+        self.assertEqual(tuple(data[0]), tuple([new_col[0]]))
         self.assertEqual(data.width, 1)
         self.assertEqual(data.height, len(new_col))
         self.assertEqual(data.headers, None)
@@ -162,6 +163,42 @@ class TablibTestCase(unittest.TestCase):
         self.assertEqual(self.founders['gpa'],
                          [self.john[2], self.george[2], self.tom[2]])
 
+    def test_lblidx_valid_update(self):
+        """Verify Dataset's _lblidx attribute is updated on header setting"""
+
+        self.assertFalse(data._lblidx)
+        data.append(self.john)
+        self.assertFalse(data._lblidx)
+        data.headers = self.headers
+        self.assertTrue(data._lblidx)
+
+    def test_lblidx_non_unique(self):
+        """Verify Dataset's _lblidx is set to ``False`` if headers has
+        duplicate labels"""
+
+        self.assertTrue(self.founders._lblidx)
+        self.founders.headers = ('one', 'one', 'three')
+        self.assertFalse(self.founders._lblidx)
+
+    def test_label_based_row_item_access(self):
+        """Verify label based indexing for Rows works"""
+
+        def label_index_callable(dataset, row_index, col_label):
+            return dataset[row_index][col_label]
+
+        self.founders[0]['last_name'] = 'Jay'
+        self.assertEqual(self.founders[0]['last_name'], 'Jay')
+        self.assertEqual(self.founders[0]['last_name'], self.founders[0][1])
+
+        self.assertRaises(IndexError, label_index_callable, self.founders, 0,
+                'middle name')
+
+        # non-unique headers, missing headers:
+        for headers in [('same', 'same', 'different'), None]:
+            self.founders.headers = headers
+            self.assertRaises(TypeError, label_index_callable, self.founders,
+                    0, 'same')
+
     def test_get_col(self):
         """Verify getting columns by index"""
 
@@ -181,17 +218,20 @@ class TablibTestCase(unittest.TestCase):
         """Verify slicing by data."""
 
         # Slice individual rows
-        self.assertEqual(self.founders[0], self.john)
-        self.assertEqual(self.founders[:1], [self.john])
-        self.assertEqual(self.founders[1:2], [self.george])
-        self.assertEqual(self.founders[-1], self.tom)
+        self.assertEqual(self.founders[0].tuple, self.john)
+        self.assertEqual([r.tuple for r in self.founders[:1]], [self.john])
+        self.assertEqual([r.tuple for r in self.founders[1:2]], [self.george])
+        self.assertEqual(self.founders[-1].tuple, self.tom)
         self.assertEqual(self.founders[3:], [])
 
         # Slice multiple rows
-        self.assertEqual(self.founders[:], [self.john, self.george, self.tom])
-        self.assertEqual(self.founders[0:2], [self.john, self.george])
-        self.assertEqual(self.founders[1:3], [self.george, self.tom])
-        self.assertEqual(self.founders[2:], [self.tom])
+        self.assertEqual([r.tuple for r in self.founders[:]],
+                         [self.john, self.george, self.tom])
+        self.assertEqual([r.tuple for r in self.founders[0:2]],
+                         [self.john, self.george])
+        self.assertEqual([r.tuple for r in self.founders[1:3]],
+                         [self.george, self.tom])
+        self.assertEqual([r.tuple for r in self.founders[2:]], [self.tom])
 
     def test_row_slicing(self):
         """Verify Row's __getslice__ method. Issue #184."""
@@ -209,7 +249,8 @@ class TablibTestCase(unittest.TestCase):
 
         # Delete from front of object
         del self.founders[0]
-        self.assertEqual(self.founders[:], [self.george, self.tom])
+        self.assertEqual([r.tuple for r in self.founders[:]],
+                         [self.george, self.tom])
 
         # Verify dimensions, width should NOT change
         self.assertEqual(self.founders.height, 2)
@@ -217,7 +258,7 @@ class TablibTestCase(unittest.TestCase):
 
         # Delete from back of object
         del self.founders[1]
-        self.assertEqual(self.founders[:], [self.george])
+        self.assertEqual([r.tuple for r in self.founders[:]], [self.george])
 
         # Verify dimensions, width should NOT change
         self.assertEqual(self.founders.height, 1)
@@ -225,6 +266,22 @@ class TablibTestCase(unittest.TestCase):
 
         # Delete from invalid index
         self.assertRaises(IndexError, self.founders.__delitem__, 3)
+            
+    def test_json_export(self):
+        """Verify exporting dataset object as JSON"""
+        
+        address_id = uuid4()
+        headers = self.headers + ('address_id',)
+        founders = tablib.Dataset(headers=headers, title='Founders')
+        founders.append(('John', 'Adams', 90, address_id))
+        founders_json = founders.export('json')
+        
+        expected_json = (
+            '[{"first_name": "John", "last_name": "Adams", "gpa": 90, '
+            '"address_id": "%s"}]' % str(address_id)
+        )
+        
+        self.assertEqual(founders_json, expected_json)
 
     def test_csv_export(self):
         """Verify exporting dataset object as CSV."""
@@ -714,6 +771,42 @@ class TablibTestCase(unittest.TestCase):
         self.assertEqual(tablib.detect_format(_json), 'json')
         self.assertEqual(tablib.detect_format(_bunk), None)
 
+    def test_row_cmp(self):
+        """Test Row's ``==`` and ``!=``"""
+
+        data.append(self.founders[1])
+        self.assertEqual(data[0], self.founders[1])
+        self.assertNotEqual(data[0], self.founders[2])
+        data[0].tags.append('tagged')
+        self.assertNotEqual(data[0], self.founders[1])
+        self.founders[1].tags.append('tagged')
+        self.assertEqual(data[0], self.founders[1])
+
+    def test_row_add(self):
+        """ Test Row's ``+``"""
+        data.append('abc')
+        data.append('def')
+        expected = list('abcdef')
+        self.assertEqual(data[0] + data[1], expected)
+        self.assertEqual(data[0] + 'def', expected)
+        self.assertEqual(data[0] + list('def'), expected)
+
+    def test_copy(self):
+        """Test Dataset's copy() method"""
+
+        self.founders[0].tags.append("Sam's cousin")
+        copied = self.founders.copy()
+
+        self.assertEqual(self.founders.headers, copied.headers)
+        self.assertEqual(self.founders.title, copied.title)
+        for orig_row, copy_row in zip(self.founders, copied):
+            self.assertEqual(orig_row, copy_row)
+
+        self.assertTrue(all([r._dset is copied for r in copied]))
+        self.assertFalse(copied is self.founders)
+        # ensure new dataset is not a shallow copy:
+        self.assertFalse(copied._data is self.founders._data)
+
     def test_transpose(self):
         """Transpose a dataset."""
 
@@ -723,10 +816,16 @@ class TablibTestCase(unittest.TestCase):
 
         self.assertEqual(transposed_founders.headers,
                          ["first_name", "John", "George", "Thomas"])
-        self.assertEqual(first_row,
+        self.assertEqual(first_row.tuple,
                          ("last_name", "Adams", "Washington", "Jefferson"))
-        self.assertEqual(second_row,
+        self.assertEqual(second_row.tuple,
                          ("gpa", 90, 67, 50))
+
+        self.assertTrue(all([r._dset is transposed_founders
+                             for r in transposed_founders]))
+        self.assertFalse(transposed_founders is self.founders)
+        # ensure new dataset is not a shallow copy:
+        self.assertFalse(transposed_founders._data is self.founders._data)
 
     def test_transpose_multiple_headers(self):
 
@@ -752,6 +851,11 @@ class TablibTestCase(unittest.TestCase):
             expected_data = original_data + original_data
             self.assertEqual(row_stacked[column], expected_data)
 
+        self.assertTrue(all([r._dset is row_stacked for r in row_stacked]))
+        self.assertFalse(row_stacked is self.founders)
+        # ensure new dataset is not a shallow copy:
+        self.assertFalse(row_stacked._data is self.founders._data)
+
     def test_column_stacking(self):
         """Column stacking"""
 
@@ -765,10 +869,16 @@ class TablibTestCase(unittest.TestCase):
         for index, row in enumerate(column_stacked):
             original_data = self.founders[index]
             expected_data = original_data + original_data
-            self.assertEqual(row, expected_data)
+            self.assertEqual(row.list, expected_data)
 
-        self.assertEqual(column_stacked[0],
+        self.assertEqual(column_stacked[0].tuple,
                          ("John", "Adams", 90, "John", "Adams", 90))
+
+        self.assertTrue(all([r._dset is column_stacked
+                             for r in column_stacked]))
+        self.assertFalse(column_stacked is self.founders)
+        # ensure new dataset is not a shallow copy:
+        self.assertFalse(column_stacked._data is self.founders._data)
 
     def test_sorting(self):
         """Sort columns."""
@@ -787,23 +897,45 @@ class TablibTestCase(unittest.TestCase):
         self.assertEqual(second_row, expected_second)
         self.assertEqual(third_row, expected_third)
 
+        # check that sorted_data rows reference correct Dataset object:
+        self.assertTrue(all([r._dset is sorted_data for r in sorted_data]))
+        # ensure new dataset is not a shallow copy:
+        self.assertFalse(sorted_data._data is self.founders._data)
+
     def test_remove_duplicates(self):
         """Unique Rows."""
 
         self.founders.append(self.john)
         self.founders.append(self.george)
         self.founders.append(self.tom)
-        self.assertEqual(self.founders[0], self.founders[3])
-        self.assertEqual(self.founders[1], self.founders[4])
-        self.assertEqual(self.founders[2], self.founders[5])
+        self.assertEqual(self.founders[0].tuple, self.founders[3].tuple)
+        self.assertEqual(self.founders[1].tuple, self.founders[4].tuple)
+        self.assertEqual(self.founders[2].tuple, self.founders[5].tuple)
         self.assertEqual(self.founders.height, 6)
 
         self.founders.remove_duplicates()
 
-        self.assertEqual(self.founders[0], self.john)
-        self.assertEqual(self.founders[1], self.george)
-        self.assertEqual(self.founders[2], self.tom)
+        self.assertEqual(self.founders[0].tuple, self.john)
+        self.assertEqual(self.founders[1].tuple, self.george)
+        self.assertEqual(self.founders[2].tuple, self.tom)
         self.assertEqual(self.founders.height, 3)
+
+    def test_filter(self):
+        """Test ``filter`` method"""
+        self.founders[0].tags.append("sam's cousin")
+        self.founders[0].tags.append('president')
+        self.founders[2].tags.append('president')
+
+        filtered = self.founders.filter('president')
+
+        self.assertEqual(filtered.height, 2)
+        self.assertEqual(filtered[0], self.founders[0])
+        self.assertEqual(filtered[1], self.founders[2])
+
+        self.assertTrue(all([r._dset is filtered for r in filtered]))
+        self.assertFalse(filtered is self.founders)
+        # ensure new dataset is not a shallow copy:
+        self.assertFalse(filtered._data is self.founders._data)
 
     def test_wipe(self):
         """Purge a dataset."""
@@ -813,13 +945,13 @@ class TablibTestCase(unittest.TestCase):
 
         # Verify width/data
         self.assertTrue(data.width == len(new_row))
-        self.assertTrue(data[0] == new_row)
+        self.assertTrue(data[0].tuple == new_row)
 
         data.wipe()
         new_row = (1, 2, 3, 4)
         data.append(new_row)
         self.assertTrue(data.width == len(new_row))
-        self.assertTrue(data[0] == new_row)
+        self.assertTrue(data[0].tuple == new_row)
 
     def test_subset(self):
         """Create a subset of a dataset"""
@@ -839,6 +971,11 @@ class TablibTestCase(unittest.TestCase):
         self.assertEqual(subset.headers, list(columns))
         self.assertEqual(subset._data[0].list, ['John', 90])
         self.assertEqual(subset._data[1].list, ['Thomas', 50])
+
+        self.assertTrue(all([r._dset is subset for r in subset]))
+        self.assertFalse(subset is data)
+        # ensure new dataset is not a shallow copy:
+        self.assertFalse(subset._data is data._data)
 
     def test_formatters(self):
         """Confirm formatters are being triggered."""
