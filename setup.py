@@ -48,6 +48,7 @@ install = [
     'xlrd',
     'xlwt',
     'pyyaml',
+    'six'
 ]
 
 

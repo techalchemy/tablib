@@ -15,6 +15,7 @@ from operator import itemgetter
 from tablib import formats
 
 from tablib.compat import OrderedDict, unicode
+import six
 
 
 __title__ = 'tablib'
@@ -55,7 +56,7 @@ class Row(object):
         ``key`` is string bt Dataset has no unique headers set and IndexError
         if ``key`` is not in headers."""
 
-        if isinstance(key, (str, unicode)):
+        if isinstance(key, six.string_types):
             if not self._dset._lblidx:
                 raise TypeError("Cannot access element by key '{0}' - Dataset"
                         " headers not suitable for indexing".format(key))
@@ -211,7 +212,7 @@ class Dataset(object):
         return self.height
 
     def __getitem__(self, key):
-        if isinstance(key, (str, unicode)):
+        if isinstance(key, six.string_types):
             if key in self.headers:
                 pos = self.headers.index(key) # get 'key' index from each data
                 return [row[pos] for row in self._data]
